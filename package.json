@@ -1,0 +1,26 @@
+{
+  "name": "cnerp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CNERP — ERP vận hành thương mại Trung–Việt",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"npm run dev -w @cnerp/api\" \"npm run dev -w @cnerp/web\"",
+    "build": "npm run build -w @cnerp/shared && npm run build -w @cnerp/api && npm run build -w @cnerp/web",
+    "db:generate": "npm run db:generate -w @cnerp/api",
+    "db:migrate": "npm run db:migrate -w @cnerp/api",
+    "db:seed": "npm run db:seed -w @cnerp/api",
+    "db:studio": "npm run db:studio -w @cnerp/api",
+    "lint": "npm run lint -w @cnerp/api && npm run lint -w @cnerp/web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

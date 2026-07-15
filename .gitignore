@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+dist/
+build/
+.next/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Prisma
+apps/api/prisma/*.db
+apps/api/prisma/*.db-journal
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# PM2
+.pm2/
+
+# Build artifacts
+*.tsbuildinfo
+
+# Temp
+tmp/
+temp/

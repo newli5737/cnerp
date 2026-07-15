@@ -1,0 +1,19 @@
+# CNERP Frontend — HTTP only (trước certbot)
+# Sau certbot dùng cnerp.dosutech.site.conf (HTTPS)
+
+server {
+    listen 80;
+    server_name cnerp.dosutech.site;
+
+    root /home/cnerp/apps/web/dist;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ {
+        expires 7d;
+        add_header Cache-Control "public, immutable";
+    }
+}
