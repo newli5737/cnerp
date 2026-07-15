@@ -6,6 +6,7 @@ import {
   Form,
   Input,
   InputNumber,
+  Modal,
   Popconfirm,
   Select,
   Space,
@@ -14,9 +15,10 @@ import {
   Typography,
   message,
 } from 'antd';
+import { PrinterOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useTranslation } from 'react-i18next';
-import { api } from '../lib/api-client';
+import { api, type ApiError } from '../lib/api-client';
 import { FormDrawer } from '../components/form/FormDrawer';
 import { useAuth } from '../features/auth/components/AuthContext';
 
@@ -31,14 +33,33 @@ const statusColor: Record<string, string> = {
   CANCELLED: 'red',
 };
 
+const VAT_OPTIONS = [
+  { value: 0, label: '0%' },
+  { value: 5, label: '5%' },
+  { value: 8, label: '8%' },
+  { value: 10, label: '10%' },
+];
+
 export function SalesPage() {
   const { t, i18n } = useTranslation();
   const zh = i18n.language === 'zh';
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [printOrder, setPrintOrder] = useState<any | null>(null);
   const [form] = Form.useForm();
   const linesWatch = Form.useWatch('lines', form) || [];
+
+  const showErr = (e: unknown) => {
+    const err = e as ApiError;
+    const text = err.i18nKey ? t(err.i18nKey) : err.message || t('errors.generic');
+    Modal.error({
+      title: t('errors.title'),
+      content: text,
+      okText: t('confirm'),
+      centered: true,
+    });
+  };
 
   const { data = [], isLoading } = useQuery({
     queryKey: ['sales'],
@@ -57,14 +78,17 @@ export function SalesPage() {
     queryFn: () => api<any[]>('/products?active=1'),
   });
 
-  const grandTotal = useMemo(
-    () =>
-      (linesWatch as any[]).reduce(
-        (s, l) => s + Number(l?.qty || 0) * Number(l?.unitPrice || 0),
-        0,
-      ),
-    [linesWatch],
-  );
+  const totals = useMemo(() => {
+    let subtotal = 0;
+    let vat = 0;
+    for (const l of linesWatch as any[]) {
+      const amt = Number(l?.qty || 0) * Number(l?.unitPrice || 0);
+      const vatAmt = (amt * Number(l?.vatRate ?? 10)) / 100;
+      subtotal += amt;
+      vat += vatAmt;
+    }
+    return { subtotal, vat, total: subtotal + vat };
+  }, [linesWatch]);
 
   const create = useMutation({
     mutationFn: (body: unknown) => api('/sales-orders', { method: 'POST', body: JSON.stringify(body) }),
@@ -73,7 +97,7 @@ export function SalesPage() {
       setOpen(false);
       await qc.invalidateQueries({ queryKey: ['sales'] });
     },
-    onError: (e: Error) => message.error(e.message),
+    onError: showErr,
   });
 
   const action = useMutation({
@@ -86,8 +110,43 @@ export function SalesPage() {
       await qc.invalidateQueries({ queryKey: ['invoices'] });
       await qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
-    onError: (e: Error) => message.error(e.message),
+    onError: showErr,
   });
+
+  const openPrint = async (id: string) => {
+    try {
+      const order = await api<any>(`/sales-orders/${id}`);
+      setPrintOrder(order);
+    } catch (e) {
+      showErr(e);
+    }
+  };
+
+  const doPrint = () => {
+    const el = document.getElementById('sales-print-area');
+    if (!el) return;
+    const w = window.open('', '_blank', 'width=900,height=700');
+    if (!w) return;
+    w.document.write(`<!doctype html><html><head><title>${printOrder?.code || ''}</title>
+      <style>
+        body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;padding:24px;color:#111}
+        h1{font-size:20px;margin:0 0 4px}
+        .meta{color:#555;margin-bottom:16px;font-size:13px}
+        table{width:100%;border-collapse:collapse;margin-top:12px}
+        th,td{border:1px solid #ccc;padding:8px;font-size:13px}
+        th{background:#f5f7fa;text-align:left}
+        .right{text-align:right}
+        .totals{margin-top:16px;width:280px;margin-left:auto}
+        .totals td{border:none;padding:4px 8px}
+        .totals .grand{font-weight:700;font-size:15px}
+        @media print{button{display:none}}
+      </style></head><body>${el.innerHTML}</body></html>`);
+    w.document.close();
+    w.focus();
+    setTimeout(() => {
+      w.print();
+    }, 300);
+  };
 
   const productName = (p: any) => (zh ? p.nameZh || p.nameVi : p.nameVi);
 
@@ -104,7 +163,7 @@ export function SalesPage() {
               form.resetFields();
               form.setFieldsValue({
                 orderDate: dayjs(),
-                lines: [{ qty: 1, unitPrice: 0 }],
+                lines: [{ qty: 1, unitPrice: 0, vatRate: 10 }],
               });
               setOpen(true);
             }}
@@ -126,10 +185,7 @@ export function SalesPage() {
               rowKey="id"
               dataSource={r.lines || []}
               columns={[
-                {
-                  title: 'SKU',
-                  render: (_: unknown, l: any) => l.product?.sku,
-                },
+                { title: 'SKU', render: (_: unknown, l: any) => l.product?.sku },
                 {
                   title: t('product'),
                   render: (_: unknown, l: any) =>
@@ -142,9 +198,17 @@ export function SalesPage() {
                   render: (v: any) => money(Number(v)),
                 },
                 {
+                  title: t('vat'),
+                  render: (_: unknown, l: any) => `${Number(l.vatRate ?? 0)}%`,
+                },
+                {
+                  title: t('vatAmount'),
+                  render: (_: unknown, l: any) => money(Number(l.vatAmount ?? 0)),
+                },
+                {
                   title: t('lineTotal'),
-                  dataIndex: 'lineAmount',
-                  render: (v: any) => money(Number(v)),
+                  render: (_: unknown, l: any) =>
+                    money(Number(l.lineTotal ?? Number(l.lineAmount) + Number(l.vatAmount || 0))),
                 },
               ]}
             />
@@ -159,16 +223,16 @@ export function SalesPage() {
           {
             title: t('warehouse'),
             render: (_, r) => r.warehouse?.code,
-            width: 100,
+            width: 90,
           },
           {
             title: t('date'),
             render: (_, r) => String(r.orderDate).slice(0, 10),
-            width: 120,
+            width: 110,
           },
           {
             title: t('status'),
-            width: 130,
+            width: 120,
             render: (_, r) => (
               <Tag color={statusColor[r.status] || 'default'}>
                 {t(`statusMap.${r.status}`, { defaultValue: r.status })}
@@ -176,59 +240,76 @@ export function SalesPage() {
             ),
           },
           {
-            title: t('amount'),
+            title: t('subtotal'),
+            align: 'right',
+            render: (_, r) => money(Number(r.subtotalAmount ?? r.totalAmount)),
+          },
+          {
+            title: t('vatAmount'),
+            align: 'right',
+            render: (_, r) => money(Number(r.vatAmount ?? 0)),
+          },
+          {
+            title: t('total'),
             align: 'right',
             render: (_, r) => money(Number(r.totalAmount)),
           },
-          hasPermission('sales.write')
-            ? {
-                title: t('actions'),
-                width: 280,
-                render: (_, r) => (
-                  <Space wrap>
-                    {r.status === 'DRAFT' && (
-                      <Button size="small" onClick={() => action.mutate({ id: r.id, act: 'confirm' })}>
-                        {t('confirm')}
+          {
+            title: t('actions'),
+            width: 300,
+            render: (_, r) => (
+              <Space wrap>
+                <Button size="small" icon={<PrinterOutlined />} onClick={() => openPrint(r.id)}>
+                  {t('print')}
+                </Button>
+                {hasPermission('sales.write') && r.status === 'DRAFT' && (
+                  <Button size="small" onClick={() => action.mutate({ id: r.id, act: 'confirm' })}>
+                    {t('confirm')}
+                  </Button>
+                )}
+                {hasPermission('sales.write') && r.status === 'CONFIRMED' && (
+                  <Popconfirm
+                    title={t('confirmDeliver')}
+                    onConfirm={() => action.mutate({ id: r.id, act: 'deliver' })}
+                  >
+                    <Button size="small" type="primary">
+                      {t('deliver')}
+                    </Button>
+                  </Popconfirm>
+                )}
+                {hasPermission('sales.write') &&
+                  r.status !== 'DELIVERED' &&
+                  r.status !== 'CANCELLED' && (
+                    <Popconfirm
+                      title={t('confirmCancel')}
+                      onConfirm={() => action.mutate({ id: r.id, act: 'cancel' })}
+                    >
+                      <Button size="small" danger>
+                        {t('cancel')}
                       </Button>
-                    )}
-                    {r.status === 'CONFIRMED' && (
-                      <Popconfirm
-                        title={t('confirmDeliver')}
-                        onConfirm={() => action.mutate({ id: r.id, act: 'deliver' })}
-                      >
-                        <Button size="small" type="primary">
-                          {t('deliver')}
-                        </Button>
-                      </Popconfirm>
-                    )}
-                    {r.status !== 'DELIVERED' && r.status !== 'CANCELLED' && (
-                      <Popconfirm
-                        title={t('confirmCancel')}
-                        onConfirm={() => action.mutate({ id: r.id, act: 'cancel' })}
-                      >
-                        <Button size="small" danger>
-                          {t('cancel')}
-                        </Button>
-                      </Popconfirm>
-                    )}
-                  </Space>
-                ),
-              }
-            : {},
+                    </Popconfirm>
+                  )}
+              </Space>
+            ),
+          },
         ]}
       />
 
       <FormDrawer
         open={open}
         title={`${t('create')} — ${t('menu.sales')}`}
-        width={780}
+        width={900}
         onClose={() => setOpen(false)}
         loading={create.isPending}
         onSubmit={() =>
           form.validateFields().then((v) => {
             const lines = (v.lines || []).filter((l: any) => l?.productId && Number(l.qty) > 0);
             if (!lines.length) {
-              message.error(zh ? '请至少添加一行产品' : 'Cần ít nhất một dòng sản phẩm');
+              Modal.warning({
+                title: t('errors.title'),
+                content: zh ? '请至少添加一行产品' : 'Cần ít nhất một dòng sản phẩm',
+                centered: true,
+              });
               return;
             }
             create.mutate({
@@ -240,6 +321,7 @@ export function SalesPage() {
                 productId: l.productId,
                 qty: Number(l.qty),
                 unitPrice: Number(l.unitPrice),
+                vatRate: Number(l.vatRate ?? 10),
               })),
             });
           })
@@ -250,7 +332,6 @@ export function SalesPage() {
             <Select
               showSearch
               optionFilterProp="label"
-              placeholder={t('customer')}
               options={partners.map((p: any) => ({
                 value: p.id,
                 label: `${p.code} — ${zh ? p.nameZh || p.nameVi : p.nameVi}`,
@@ -280,7 +361,7 @@ export function SalesPage() {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: '1fr 100px 120px 120px 40px',
+              gridTemplateColumns: '1.4fr 90px 110px 80px 110px 40px',
               gap: 8,
               marginBottom: 8,
               color: '#666',
@@ -290,6 +371,7 @@ export function SalesPage() {
             <span>{t('product')}</span>
             <span>{t('qty')}</span>
             <span>{t('unitPrice')}</span>
+            <span>{t('vat')}</span>
             <span>{t('lineTotal')}</span>
             <span />
           </div>
@@ -299,13 +381,15 @@ export function SalesPage() {
               <>
                 {fields.map((field) => {
                   const line = linesWatch?.[field.name] || {};
-                  const lineAmt = Number(line.qty || 0) * Number(line.unitPrice || 0);
+                  const amt = Number(line.qty || 0) * Number(line.unitPrice || 0);
+                  const vatAmt = (amt * Number(line.vatRate ?? 10)) / 100;
+                  const lineTotal = amt + vatAmt;
                   return (
                     <div
                       key={field.key}
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: '1fr 100px 120px 120px 40px',
+                        gridTemplateColumns: '1.4fr 90px 110px 80px 110px 40px',
                         gap: 8,
                         marginBottom: 8,
                         alignItems: 'start',
@@ -314,13 +398,12 @@ export function SalesPage() {
                       <Form.Item
                         {...field}
                         name={[field.name, 'productId']}
-                        rules={[{ required: true, message: t('product') }]}
+                        rules={[{ required: true }]}
                         style={{ marginBottom: 0 }}
                       >
                         <Select
                           showSearch
                           optionFilterProp="label"
-                          placeholder={t('product')}
                           options={products.map((p: any) => ({
                             value: p.id,
                             label: `${p.sku} — ${productName(p)}`,
@@ -333,6 +416,7 @@ export function SalesPage() {
                               ...next[field.name],
                               productId: id,
                               unitPrice: Number(p.salePrice),
+                              vatRate: Number(p.vatRate ?? 10),
                             };
                             form.setFieldsValue({ lines: next });
                           }}
@@ -354,12 +438,15 @@ export function SalesPage() {
                       >
                         <InputNumber min={0} style={{ width: '100%' }} />
                       </Form.Item>
-                      <InputNumber
-                        disabled
-                        value={lineAmt}
-                        style={{ width: '100%' }}
-                        formatter={(v) => money(Number(v || 0))}
-                      />
+                      <Form.Item
+                        {...field}
+                        name={[field.name, 'vatRate']}
+                        rules={[{ required: true }]}
+                        style={{ marginBottom: 0 }}
+                      >
+                        <Select options={VAT_OPTIONS} />
+                      </Form.Item>
+                      <InputNumber disabled value={lineTotal} style={{ width: '100%' }} />
                       <Button
                         danger
                         type="text"
@@ -371,20 +458,134 @@ export function SalesPage() {
                     </div>
                   );
                 })}
-                <Button type="dashed" block onClick={() => add({ qty: 1, unitPrice: 0 })}>
+                <Button
+                  type="dashed"
+                  block
+                  onClick={() => add({ qty: 1, unitPrice: 0, vatRate: 10 })}
+                >
                   {t('addLine')}
                 </Button>
               </>
             )}
           </Form.List>
 
-          <div style={{ textAlign: 'right', marginTop: 16, fontSize: 16 }}>
-            <Typography.Text strong>
-              {t('total')}: {money(grandTotal)} ₫
-            </Typography.Text>
+          <div style={{ marginTop: 16, textAlign: 'right', lineHeight: 1.8 }}>
+            <div>
+              {t('subtotal')}: <strong>{money(totals.subtotal)} ₫</strong>
+            </div>
+            <div>
+              {t('vatAmount')}: <strong>{money(totals.vat)} ₫</strong>
+            </div>
+            <div style={{ fontSize: 16 }}>
+              {t('total')}: <strong>{money(totals.total)} ₫</strong>
+            </div>
           </div>
         </Form>
       </FormDrawer>
+
+      <Modal
+        open={!!printOrder}
+        title={`${t('print')} — ${printOrder?.code || ''}`}
+        onCancel={() => setPrintOrder(null)}
+        width={820}
+        footer={[
+          <Button key="close" onClick={() => setPrintOrder(null)}>
+            {t('cancel')}
+          </Button>,
+          <Button key="print" type="primary" icon={<PrinterOutlined />} onClick={doPrint}>
+            {t('print')}
+          </Button>,
+        ]}
+      >
+        {printOrder && (
+          <div id="sales-print-area">
+            <h1>
+              {zh ? '销售订单' : 'Đơn bán hàng'} — {printOrder.code}
+            </h1>
+            <div className="meta">
+              <div>
+                <strong>{zh ? '公司' : 'Công ty'}:</strong>{' '}
+                {zh
+                  ? user?.company.nameZh || user?.company.nameVi
+                  : user?.company.nameVi}
+              </div>
+              <div>
+                <strong>{t('customer')}:</strong>{' '}
+                {zh
+                  ? printOrder.partner?.nameZh || printOrder.partner?.nameVi
+                  : printOrder.partner?.nameVi}{' '}
+                ({printOrder.partner?.code})
+              </div>
+              <div>
+                <strong>{t('warehouse')}:</strong> {printOrder.warehouse?.code} —{' '}
+                {zh
+                  ? printOrder.warehouse?.nameZh || printOrder.warehouse?.nameVi
+                  : printOrder.warehouse?.nameVi}
+              </div>
+              <div>
+                <strong>{t('date')}:</strong> {String(printOrder.orderDate).slice(0, 10)}
+              </div>
+              <div>
+                <strong>{t('status')}:</strong>{' '}
+                {t(`statusMap.${printOrder.status}`, { defaultValue: printOrder.status })}
+              </div>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>SKU</th>
+                  <th>{t('product')}</th>
+                  <th className="right">{t('qty')}</th>
+                  <th className="right">{t('unitPrice')}</th>
+                  <th className="right">{t('vat')}</th>
+                  <th className="right">{t('vatAmount')}</th>
+                  <th className="right">{t('lineTotal')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(printOrder.lines || []).map((l: any, idx: number) => (
+                  <tr key={l.id}>
+                    <td>{idx + 1}</td>
+                    <td>{l.product?.sku}</td>
+                    <td>{zh ? l.product?.nameZh || l.product?.nameVi : l.product?.nameVi}</td>
+                    <td className="right">{Number(l.qty)}</td>
+                    <td className="right">{money(Number(l.unitPrice))}</td>
+                    <td className="right">{Number(l.vatRate ?? 0)}%</td>
+                    <td className="right">{money(Number(l.vatAmount ?? 0))}</td>
+                    <td className="right">
+                      {money(Number(l.lineTotal ?? Number(l.lineAmount) + Number(l.vatAmount || 0)))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <table className="totals">
+              <tbody>
+                <tr>
+                  <td>{t('subtotal')}</td>
+                  <td className="right">
+                    {money(Number(printOrder.subtotalAmount ?? printOrder.totalAmount))} ₫
+                  </td>
+                </tr>
+                <tr>
+                  <td>{t('vatAmount')}</td>
+                  <td className="right">{money(Number(printOrder.vatAmount ?? 0))} ₫</td>
+                </tr>
+                <tr className="grand">
+                  <td>{t('total')}</td>
+                  <td className="right">{money(Number(printOrder.totalAmount))} ₫</td>
+                </tr>
+              </tbody>
+            </table>
+            {printOrder.note && (
+              <p style={{ marginTop: 16 }}>
+                <strong>{t('note')}:</strong> {printOrder.note}
+              </p>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

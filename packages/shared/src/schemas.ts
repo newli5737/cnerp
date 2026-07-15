@@ -45,6 +45,7 @@ export const productSchema = z.object({
   unit: z.string().default('Cái'),
   salePrice: z.coerce.number().nonnegative().default(0),
   costPrice: z.coerce.number().nonnegative().default(0),
+  vatRate: z.coerce.number().nonnegative().max(100).default(10),
   minStock: z.coerce.number().nonnegative().default(0),
   isActive: z.boolean().optional(),
   attributes: z
@@ -63,6 +64,7 @@ export const salesOrderLineSchema = z.object({
   productId: z.string().uuid(),
   qty: z.coerce.number().positive(),
   unitPrice: z.coerce.number().nonnegative(),
+  vatRate: z.coerce.number().nonnegative().max(100).default(10),
 });
 
 export const salesOrderSchema = z.object({

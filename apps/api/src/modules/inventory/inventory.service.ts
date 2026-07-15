@@ -44,7 +44,10 @@ export class InventoryService {
     });
     const next = (existing?.qty ?? new Prisma.Decimal(0)).add(delta);
     if (next.lessThan(0)) {
-      throw new BadRequestException('Insufficient stock');
+      throw new BadRequestException({
+        code: 'INSUFFICIENT_STOCK',
+        message: 'Insufficient stock',
+      });
     }
     if (existing) {
       await tx.stockBalance.update({

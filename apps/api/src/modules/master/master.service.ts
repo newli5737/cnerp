@@ -140,6 +140,7 @@ export class MasterService {
       unit: dto.unit || 'Cái',
       salePrice: dto.salePrice,
       costPrice: dto.costPrice,
+      vatRate: dto.vatRate ?? 10,
       minStock: dto.minStock,
       isActive: dto.isActive ?? true,
     };

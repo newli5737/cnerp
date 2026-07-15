@@ -14,6 +14,7 @@ type Product = {
   unit: string;
   salePrice: string | number;
   costPrice: string | number;
+  vatRate?: string | number;
   minStock: string | number;
   isActive: boolean;
 };
@@ -70,6 +71,7 @@ export function ProductsPage() {
                 unit: 'Cái',
                 salePrice: 0,
                 costPrice: 0,
+                vatRate: 10,
                 minStock: 0,
                 isActive: true,
               });
@@ -102,6 +104,11 @@ export function ProductsPage() {
             align: 'right',
           },
           {
+            title: 'VAT',
+            render: (_, r) => `${Number(r.vatRate ?? 10)}%`,
+            width: 70,
+          },
+          {
             title: t('status'),
             width: 100,
             render: (_, r) => (
@@ -124,6 +131,7 @@ export function ProductsPage() {
                           ...r,
                           salePrice: Number(r.salePrice),
                           costPrice: Number(r.costPrice),
+                          vatRate: Number(r.vatRate ?? 10),
                           minStock: Number(r.minStock),
                         });
                         setOpen(true);
@@ -181,6 +189,9 @@ export function ProductsPage() {
           </Form.Item>
           <Form.Item name="costPrice" label={zh ? '成本' : 'Giá vốn'}>
             <InputNumber style={{ width: '100%' }} min={0} />
+          </Form.Item>
+          <Form.Item name="vatRate" label={t('vatRate')} rules={[{ required: true }]}>
+            <InputNumber style={{ width: '100%' }} min={0} max={100} addonAfter="%" />
           </Form.Item>
           <Form.Item name="minStock" label={zh ? '最低库存' : 'Tồn tối thiểu'}>
             <InputNumber style={{ width: '100%' }} min={0} />

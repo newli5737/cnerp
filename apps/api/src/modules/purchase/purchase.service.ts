@@ -70,14 +70,21 @@ export class PurchaseService {
     });
     if (!order) throw new NotFoundException('Order not found');
     if (order.status !== 'CONFIRMED') {
-      throw new BadRequestException('Confirm order before receive');
+      throw new BadRequestException({
+        code: 'MUST_CONFIRM_FIRST',
+        message: 'Confirm order before receive',
+      });
     }
 
     const existingInv = await this.prisma.invoice.findFirst({
       where: { purchaseOrderId: order.id },
     });
-    if (existingInv) throw new BadRequestException('Order already received');
-
+    if (existingInv) {
+      throw new BadRequestException({
+        code: 'ALREADY_RECEIVED',
+        message: 'Order already received',
+      });
+    }
     const stockCode = await this.seq.next(companyId, 'STOCK', 'ST');
     const invCode = await this.seq.next(companyId, 'AP', 'AP');
 

@@ -180,6 +180,7 @@ model Product {
   unit      String   @default("Cái")
   salePrice Decimal  @default(0) @map("sale_price") @db.Decimal(18, 2)
   costPrice Decimal  @default(0) @map("cost_price") @db.Decimal(18, 2)
+  vatRate   Decimal  @default(10) @map("vat_rate") @db.Decimal(5, 2)
   minStock  Decimal  @default(0) @map("min_stock") @db.Decimal(18, 4)
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at")
@@ -266,17 +267,19 @@ model StockMoveLine {
 }
 
 model SalesOrder {
-  id          String   @id @default(uuid())
-  companyId   String   @map("company_id")
-  code        String
-  partnerId   String   @map("partner_id")
-  warehouseId String   @map("warehouse_id")
-  orderDate   DateTime @map("order_date") @db.Date
-  status      String   @default("DRAFT")
-  totalAmount Decimal  @default(0) @map("total_amount") @db.Decimal(18, 2)
-  note        String?
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id             String   @id @default(uuid())
+  companyId      String   @map("company_id")
+  code           String
+  partnerId      String   @map("partner_id")
+  warehouseId    String   @map("warehouse_id")
+  orderDate      DateTime @map("order_date") @db.Date
+  status         String   @default("DRAFT")
+  subtotalAmount Decimal  @default(0) @map("subtotal_amount") @db.Decimal(18, 2)
+  vatAmount      Decimal  @default(0) @map("vat_amount") @db.Decimal(18, 2)
+  totalAmount    Decimal  @default(0) @map("total_amount") @db.Decimal(18, 2)
+  note           String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   company   Company          @relation(fields: [companyId], references: [id])
   partner   Partner          @relation(fields: [partnerId], references: [id])
@@ -294,7 +297,10 @@ model SalesOrderLine {
   productId    String  @map("product_id")
   qty          Decimal @db.Decimal(18, 4)
   unitPrice    Decimal @map("unit_price") @db.Decimal(18, 2)
+  vatRate      Decimal @default(10) @map("vat_rate") @db.Decimal(5, 2)
+  vatAmount    Decimal @default(0) @map("vat_amount") @db.Decimal(18, 2)
   lineAmount   Decimal @map("line_amount") @db.Decimal(18, 2)
+  lineTotal    Decimal @default(0) @map("line_total") @db.Decimal(18, 2)
   lineNo       Int     @map("line_no")
 
   salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)

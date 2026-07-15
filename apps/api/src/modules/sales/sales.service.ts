@@ -27,6 +27,7 @@ export class SalesService {
       include: {
         partner: true,
         warehouse: true,
+        company: true,
         lines: { include: { product: true } },
         invoices: true,
       },
@@ -38,18 +39,30 @@ export class SalesService {
   async create(companyId: string, body: unknown) {
     const dto = salesOrderSchema.parse(body);
     const code = await this.seq.next(companyId, 'SO', 'SO');
-    let total = new Prisma.Decimal(0);
+
+    let subtotal = new Prisma.Decimal(0);
+    let vatTotal = new Prisma.Decimal(0);
+
     const lines = dto.lines.map((l, i) => {
-      const amt = new Prisma.Decimal(l.qty).mul(l.unitPrice);
-      total = total.add(amt);
+      const lineAmount = new Prisma.Decimal(l.qty).mul(l.unitPrice);
+      const vatRate = new Prisma.Decimal(l.vatRate ?? 10);
+      const vatAmount = lineAmount.mul(vatRate).div(100);
+      const lineTotal = lineAmount.add(vatAmount);
+      subtotal = subtotal.add(lineAmount);
+      vatTotal = vatTotal.add(vatAmount);
       return {
         productId: l.productId,
         qty: l.qty,
         unitPrice: l.unitPrice,
-        lineAmount: amt,
+        vatRate,
+        vatAmount,
+        lineAmount,
+        lineTotal,
         lineNo: i + 1,
       };
     });
+
+    const totalAmount = subtotal.add(vatTotal);
 
     return this.prisma.salesOrder.create({
       data: {
@@ -59,7 +72,9 @@ export class SalesService {
         warehouseId: dto.warehouseId,
         orderDate: new Date(dto.orderDate),
         note: dto.note || null,
-        totalAmount: total,
+        subtotalAmount: subtotal,
+        vatAmount: vatTotal,
+        totalAmount,
         lines: { create: lines },
       },
       include: { partner: true, warehouse: true, lines: { include: { product: true } } },
@@ -68,8 +83,10 @@ export class SalesService {
 
   async confirm(companyId: string, id: string) {
     const order = await this.prisma.salesOrder.findFirst({ where: { id, companyId } });
-    if (!order) throw new NotFoundException('Order not found');
-    if (order.status !== 'DRAFT') throw new BadRequestException('Only DRAFT can confirm');
+    if (!order) throw new NotFoundException({ code: 'ORDER_NOT_FOUND', message: 'Order not found' });
+    if (order.status !== 'DRAFT') {
+      throw new BadRequestException({ code: 'ONLY_DRAFT_CONFIRM', message: 'Only DRAFT can confirm' });
+    }
     return this.prisma.salesOrder.update({
       where: { id },
       data: { status: 'CONFIRMED' },
@@ -82,15 +99,23 @@ export class SalesService {
       where: { id, companyId },
       include: { lines: { include: { product: true } } },
     });
-    if (!order) throw new NotFoundException('Order not found');
+    if (!order) throw new NotFoundException({ code: 'ORDER_NOT_FOUND', message: 'Order not found' });
     if (order.status !== 'CONFIRMED') {
-      throw new BadRequestException('Confirm order before deliver');
+      throw new BadRequestException({
+        code: 'MUST_CONFIRM_FIRST',
+        message: 'Confirm order before deliver',
+      });
     }
 
     const existingInv = await this.prisma.invoice.findFirst({
       where: { salesOrderId: order.id },
     });
-    if (existingInv) throw new BadRequestException('Order already delivered');
+    if (existingInv) {
+      throw new BadRequestException({
+        code: 'ALREADY_DELIVERED',
+        message: 'Order already delivered',
+      });
+    }
 
     const stockCode = await this.seq.next(companyId, 'STOCK', 'ST');
     const invCode = await this.seq.next(companyId, 'AR', 'AR');
@@ -140,8 +165,13 @@ export class SalesService {
 
   async cancel(companyId: string, id: string) {
     const order = await this.prisma.salesOrder.findFirst({ where: { id, companyId } });
-    if (!order) throw new NotFoundException('Order not found');
-    if (order.status === 'DELIVERED') throw new BadRequestException('Cannot cancel delivered');
+    if (!order) throw new NotFoundException({ code: 'ORDER_NOT_FOUND', message: 'Order not found' });
+    if (order.status === 'DELIVERED') {
+      throw new BadRequestException({
+        code: 'CANNOT_CANCEL_DELIVERED',
+        message: 'Cannot cancel delivered',
+      });
+    }
     return this.prisma.salesOrder.update({
       where: { id },
       data: { status: 'CANCELLED' },
