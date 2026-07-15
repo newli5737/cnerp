@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Form, Input, InputNumber, Space, Table, Typography, message } from 'antd';
+import { Button, Form, Input, InputNumber, Space, Switch, Table, Tag, Typography, message } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { api } from '../lib/api-client';
 import { FormDrawer } from '../components/form/FormDrawer';
@@ -28,7 +28,7 @@ export function ProductsPage() {
   const [form] = Form.useForm();
 
   const { data = [], isLoading } = useQuery({
-    queryKey: ['products'],
+    queryKey: ['products', 'all'],
     queryFn: () => api<Product[]>('/products'),
   });
 
@@ -40,6 +40,15 @@ export function ProductsPage() {
     onSuccess: async () => {
       message.success(t('success'));
       setOpen(false);
+      await qc.invalidateQueries({ queryKey: ['products'] });
+    },
+    onError: (e: Error) => message.error(e.message),
+  });
+
+  const deactivate = useMutation({
+    mutationFn: (id: string) => api(`/products/${id}`, { method: 'DELETE' }),
+    onSuccess: async () => {
+      message.success(t('success'));
       await qc.invalidateQueries({ queryKey: ['products'] });
     },
     onError: (e: Error) => message.error(e.message),
@@ -57,7 +66,13 @@ export function ProductsPage() {
             onClick={() => {
               setEditing(null);
               form.resetFields();
-              form.setFieldsValue({ unit: 'Cái', salePrice: 0, costPrice: 0, minStock: 0 });
+              form.setFieldsValue({
+                unit: 'Cái',
+                salePrice: 0,
+                costPrice: 0,
+                minStock: 0,
+                isActive: true,
+              });
               setOpen(true);
             }}
           >
@@ -70,39 +85,58 @@ export function ProductsPage() {
         loading={isLoading}
         dataSource={data}
         columns={[
-          { title: 'SKU', dataIndex: 'sku' },
+          { title: 'SKU', dataIndex: 'sku', width: 140 },
           {
             title: t('name'),
             render: (_, r) => (zh ? r.nameZh || r.nameVi : r.nameVi),
           },
-          { title: 'Unit', dataIndex: 'unit' },
+          { title: zh ? '单位' : 'ĐVT', dataIndex: 'unit', width: 80 },
           {
             title: zh ? '售价' : 'Giá bán',
             render: (_, r) => Number(r.salePrice).toLocaleString(),
+            align: 'right',
           },
           {
             title: zh ? '成本' : 'Giá vốn',
             render: (_, r) => Number(r.costPrice).toLocaleString(),
+            align: 'right',
+          },
+          {
+            title: t('status'),
+            width: 100,
+            render: (_, r) => (
+              <Tag color={r.isActive ? 'green' : 'default'}>
+                {r.isActive ? t('active') : t('inactive')}
+              </Tag>
+            ),
           },
           hasPermission('products.write')
             ? {
                 title: t('actions'),
+                width: 160,
                 render: (_, r) => (
-                  <Button
-                    type="link"
-                    onClick={() => {
-                      setEditing(r);
-                      form.setFieldsValue({
-                        ...r,
-                        salePrice: Number(r.salePrice),
-                        costPrice: Number(r.costPrice),
-                        minStock: Number(r.minStock),
-                      });
-                      setOpen(true);
-                    }}
-                  >
-                    {t('edit')}
-                  </Button>
+                  <Space>
+                    <Button
+                      type="link"
+                      onClick={() => {
+                        setEditing(r);
+                        form.setFieldsValue({
+                          ...r,
+                          salePrice: Number(r.salePrice),
+                          costPrice: Number(r.costPrice),
+                          minStock: Number(r.minStock),
+                        });
+                        setOpen(true);
+                      }}
+                    >
+                      {t('edit')}
+                    </Button>
+                    {r.isActive && (
+                      <Button type="link" danger onClick={() => deactivate.mutate(r.id)}>
+                        {t('delete')}
+                      </Button>
+                    )}
+                  </Space>
                 ),
               }
             : {},
@@ -113,30 +147,49 @@ export function ProductsPage() {
         title={editing ? t('edit') : t('create')}
         onClose={() => setOpen(false)}
         loading={save.isPending}
-        onSubmit={() => form.validateFields().then((v) => save.mutate(v))}
+        onSubmit={() =>
+          form.validateFields().then((v) => {
+            const { sku: _sku, ...rest } = v;
+            save.mutate(editing ? rest : rest);
+          })
+        }
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="sku" label="SKU" rules={[{ required: true }]}>
-            <Input disabled={!!editing} />
-          </Form.Item>
+          {editing ? (
+            <Form.Item label="SKU">
+              <Input value={editing.sku} disabled />
+            </Form.Item>
+          ) : (
+            <Form.Item label="SKU">
+              <Input disabled placeholder={t('skuAuto')} />
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {t('skuAuto')} (SP + năm + số)
+              </Typography.Text>
+            </Form.Item>
+          )}
           <Form.Item name="nameVi" label={`${t('name')} (VI)`} rules={[{ required: true }]}>
             <Input />
           </Form.Item>
           <Form.Item name="nameZh" label={`${t('name')} (ZH)`}>
             <Input />
           </Form.Item>
-          <Form.Item name="unit" label="Unit" rules={[{ required: true }]}>
+          <Form.Item name="unit" label={zh ? '单位' : 'Đơn vị tính'} rules={[{ required: true }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="salePrice" label={zh ? '售价' : 'Giá bán'}>
+          <Form.Item name="salePrice" label={zh ? '售价' : 'Giá bán'} rules={[{ required: true }]}>
             <InputNumber style={{ width: '100%' }} min={0} />
           </Form.Item>
           <Form.Item name="costPrice" label={zh ? '成本' : 'Giá vốn'}>
             <InputNumber style={{ width: '100%' }} min={0} />
           </Form.Item>
-          <Form.Item name="minStock" label="Min stock">
+          <Form.Item name="minStock" label={zh ? '最低库存' : 'Tồn tối thiểu'}>
             <InputNumber style={{ width: '100%' }} min={0} />
           </Form.Item>
+          {editing && (
+            <Form.Item name="isActive" label={t('status')} valuePropName="checked">
+              <Switch />
+            </Form.Item>
+          )}
         </Form>
       </FormDrawer>
     </div>

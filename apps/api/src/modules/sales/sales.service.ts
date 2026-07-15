@@ -21,6 +21,20 @@ export class SalesService {
     });
   }
 
+  async getOne(companyId: string, id: string) {
+    const order = await this.prisma.salesOrder.findFirst({
+      where: { id, companyId },
+      include: {
+        partner: true,
+        warehouse: true,
+        lines: { include: { product: true } },
+        invoices: true,
+      },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    return order;
+  }
+
   async create(companyId: string, body: unknown) {
     const dto = salesOrderSchema.parse(body);
     const code = await this.seq.next(companyId, 'SO', 'SO');
@@ -66,12 +80,17 @@ export class SalesService {
   async deliver(companyId: string, id: string) {
     const order = await this.prisma.salesOrder.findFirst({
       where: { id, companyId },
-      include: { lines: true },
+      include: { lines: { include: { product: true } } },
     });
     if (!order) throw new NotFoundException('Order not found');
-    if (order.status !== 'CONFIRMED' && order.status !== 'DRAFT') {
-      throw new BadRequestException('Invalid status for deliver');
+    if (order.status !== 'CONFIRMED') {
+      throw new BadRequestException('Confirm order before deliver');
     }
+
+    const existingInv = await this.prisma.invoice.findFirst({
+      where: { salesOrderId: order.id },
+    });
+    if (existingInv) throw new BadRequestException('Order already delivered');
 
     const stockCode = await this.seq.next(companyId, 'STOCK', 'ST');
     const invCode = await this.seq.next(companyId, 'AR', 'AR');
@@ -88,7 +107,7 @@ export class SalesService {
         lines: order.lines.map((l) => ({
           productId: l.productId,
           qty: l.qty,
-          unitCost: 0,
+          unitCost: Number(l.product.costPrice),
         })),
       });
 
@@ -109,7 +128,12 @@ export class SalesService {
       return tx.salesOrder.update({
         where: { id },
         data: { status: 'DELIVERED' },
-        include: { partner: true, warehouse: true, lines: { include: { product: true } }, invoices: true },
+        include: {
+          partner: true,
+          warehouse: true,
+          lines: { include: { product: true } },
+          invoices: true,
+        },
       });
     });
   }

@@ -23,7 +23,7 @@ export function VouchersPage({ channel }: Props) {
     queryFn: () => api<any[]>(path),
   });
   const { data: partners = [] } = useQuery({
-    queryKey: ['partners'],
+    queryKey: ['partners', 'ALL'],
     queryFn: () => api<any[]>('/partners'),
   });
   const { data: invoices = [] } = useQuery({

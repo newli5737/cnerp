@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Form, Input, Select, Space, Table, Tag, Typography, message } from 'antd';
+import { Button, Form, Input, Select, Space, Switch, Table, Tag, Typography, message } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { api } from '../lib/api-client';
 import { FormDrawer } from '../components/form/FormDrawer';
@@ -13,6 +13,8 @@ type Partner = {
   nameZh?: string | null;
   type: string;
   phone?: string | null;
+  email?: string | null;
+  address?: string | null;
   isActive: boolean;
 };
 
@@ -26,7 +28,7 @@ export function PartnersPage() {
   const [form] = Form.useForm();
 
   const { data = [], isLoading } = useQuery({
-    queryKey: ['partners'],
+    queryKey: ['partners', 'ALL'],
     queryFn: () => api<Partner[]>('/partners'),
   });
 
@@ -43,38 +45,66 @@ export function PartnersPage() {
     onError: (e: Error) => message.error(e.message),
   });
 
+  const deactivate = useMutation({
+    mutationFn: (id: string) => api(`/partners/${id}`, { method: 'DELETE' }),
+    onSuccess: async () => {
+      message.success(t('success'));
+      await qc.invalidateQueries({ queryKey: ['partners'] });
+    },
+    onError: (e: Error) => message.error(e.message),
+  });
+
+  const typeLabel = (type: string) => {
+    if (type === 'CUSTOMER') return t('customer');
+    if (type === 'SUPPLIER') return t('supplier');
+    return zh ? '客户/供应商' : 'KH & NCC';
+  };
+
   const columns = useMemo(
-    () => [
-      { title: t('code'), dataIndex: 'code' },
-      {
-        title: t('name'),
-        render: (_: unknown, r: Partner) => (zh ? r.nameZh || r.nameVi : r.nameVi),
-      },
-      { title: 'Type', dataIndex: 'type' },
-      { title: 'Phone', dataIndex: 'phone' },
-      {
-        title: t('status'),
-        render: (_: unknown, r: Partner) => (
-          <Tag color={r.isActive ? 'green' : 'default'}>{r.isActive ? t('active') : t('inactive')}</Tag>
-        ),
-      },
-      hasPermission('partners.write') && {
-        title: t('actions'),
-        render: (_: unknown, r: Partner) => (
-          <Button
-            type="link"
-            onClick={() => {
-              setEditing(r);
-              form.setFieldsValue(r);
-              setOpen(true);
-            }}
-          >
-            {t('edit')}
-          </Button>
-        ),
-      },
-    ].filter(Boolean),
-    [t, zh, hasPermission, form],
+    () =>
+      [
+        { title: t('code'), dataIndex: 'code', width: 130 },
+        {
+          title: t('name'),
+          render: (_: unknown, r: Partner) => (zh ? r.nameZh || r.nameVi : r.nameVi),
+        },
+        {
+          title: zh ? '类型' : 'Loại',
+          render: (_: unknown, r: Partner) => typeLabel(r.type),
+        },
+        { title: 'Phone', dataIndex: 'phone' },
+        {
+          title: t('status'),
+          render: (_: unknown, r: Partner) => (
+            <Tag color={r.isActive ? 'green' : 'default'}>
+              {r.isActive ? t('active') : t('inactive')}
+            </Tag>
+          ),
+        },
+        hasPermission('partners.write') && {
+          title: t('actions'),
+          render: (_: unknown, r: Partner) => (
+            <Space>
+              <Button
+                type="link"
+                onClick={() => {
+                  setEditing(r);
+                  form.setFieldsValue(r);
+                  setOpen(true);
+                }}
+              >
+                {t('edit')}
+              </Button>
+              {r.isActive && (
+                <Button type="link" danger onClick={() => deactivate.mutate(r.id)}>
+                  {t('delete')}
+                </Button>
+              )}
+            </Space>
+          ),
+        },
+      ].filter(Boolean),
+    [t, zh, hasPermission, form, deactivate],
   );
 
   return (
@@ -103,24 +133,38 @@ export function PartnersPage() {
         title={editing ? t('edit') : t('create')}
         onClose={() => setOpen(false)}
         loading={save.isPending}
-        onSubmit={() => form.validateFields().then((v) => save.mutate(v))}
+        onSubmit={() =>
+          form.validateFields().then((v) => {
+            const { code: _c, ...rest } = v;
+            save.mutate(editing ? rest : rest);
+          })
+        }
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="code" label={t('code')} rules={[{ required: true }]}>
-            <Input disabled={!!editing} />
-          </Form.Item>
+          {editing ? (
+            <Form.Item label={t('code')}>
+              <Input value={editing.code} disabled />
+            </Form.Item>
+          ) : (
+            <Form.Item label={t('code')}>
+              <Input disabled placeholder={t('autoCode')} />
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {t('autoCode')} (KH / NCC / DT)
+              </Typography.Text>
+            </Form.Item>
+          )}
           <Form.Item name="nameVi" label={`${t('name')} (VI)`} rules={[{ required: true }]}>
             <Input />
           </Form.Item>
           <Form.Item name="nameZh" label={`${t('name')} (ZH)`}>
             <Input />
           </Form.Item>
-          <Form.Item name="type" label="Type" rules={[{ required: true }]}>
+          <Form.Item name="type" label={zh ? '类型' : 'Loại'} rules={[{ required: true }]}>
             <Select
               options={[
-                { value: 'CUSTOMER', label: 'CUSTOMER' },
-                { value: 'SUPPLIER', label: 'SUPPLIER' },
-                { value: 'BOTH', label: 'BOTH' },
+                { value: 'CUSTOMER', label: t('customer') },
+                { value: 'SUPPLIER', label: t('supplier') },
+                { value: 'BOTH', label: zh ? '客户/供应商' : 'KH & NCC' },
               ]}
             />
           </Form.Item>
@@ -130,9 +174,14 @@ export function PartnersPage() {
           <Form.Item name="email" label="Email">
             <Input />
           </Form.Item>
-          <Form.Item name="address" label="Address">
+          <Form.Item name="address" label={zh ? '地址' : 'Địa chỉ'}>
             <Input.TextArea rows={2} />
           </Form.Item>
+          {editing && (
+            <Form.Item name="isActive" label={t('status')} valuePropName="checked">
+              <Switch />
+            </Form.Item>
+          )}
         </Form>
       </FormDrawer>
     </div>

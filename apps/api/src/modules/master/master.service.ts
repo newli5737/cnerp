@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -11,28 +10,48 @@ import {
   productAttributeSchema,
 } from '@cnerp/shared';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { SequenceService } from '../../common/prisma/sequence.service';
 
 @Injectable()
 export class MasterService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly seq: SequenceService,
+  ) {}
 
-  // Partners
-  listPartners(companyId: string, type?: string) {
+  listPartners(companyId: string, type?: string, activeOnly = false) {
     return this.prisma.partner.findMany({
-      where: { companyId, ...(type ? { type: { in: [type, 'BOTH'] } } : {}) },
+      where: {
+        companyId,
+        ...(activeOnly ? { isActive: true } : {}),
+        ...(type ? { type: { in: [type, 'BOTH'] } } : {}),
+      },
       orderBy: { code: 'asc' },
     });
   }
 
   async upsertPartner(companyId: string, body: unknown, id?: string) {
     const dto = partnerSchema.parse(body);
+    let code = (dto.code || '').trim();
+    if (!id && !code) {
+      const prefix =
+        dto.type === 'SUPPLIER' ? 'NCC' : dto.type === 'CUSTOMER' ? 'KH' : 'DT';
+      code = await this.seq.next(companyId, `PARTNER_${prefix}`, prefix);
+    }
     const data = {
-      ...dto,
-      email: dto.email || null,
+      code,
+      nameVi: dto.nameVi,
       nameZh: dto.nameZh || null,
+      type: dto.type,
+      taxCode: dto.taxCode || null,
+      phone: dto.phone || null,
+      email: dto.email || null,
+      address: dto.address || null,
+      isActive: dto.isActive ?? true,
     };
     if (id) {
-      return this.prisma.partner.update({ where: { id }, data });
+      const { code: _c, ...rest } = data;
+      return this.prisma.partner.update({ where: { id }, data: rest });
     }
     return this.prisma.partner.create({ data: { ...data, companyId } });
   }
@@ -43,22 +62,32 @@ export class MasterService {
     return this.prisma.partner.update({ where: { id }, data: { isActive: false } });
   }
 
-  // Warehouses
-  listWarehouses(companyId: string) {
+  listWarehouses(companyId: string, activeOnly = false) {
     return this.prisma.warehouse.findMany({
-      where: { companyId },
+      where: { companyId, ...(activeOnly ? { isActive: true } : {}) },
       orderBy: { code: 'asc' },
     });
   }
 
   async upsertWarehouse(companyId: string, body: unknown, id?: string) {
     const dto = warehouseSchema.parse(body);
-    const data = { ...dto, nameZh: dto.nameZh || null };
-    if (id) return this.prisma.warehouse.update({ where: { id }, data });
+    let code = (dto.code || '').trim();
+    if (!id && !code) {
+      code = await this.seq.next(companyId, 'WH', 'WH');
+    }
+    const data = {
+      code,
+      nameVi: dto.nameVi,
+      nameZh: dto.nameZh || null,
+      isActive: dto.isActive ?? true,
+    };
+    if (id) {
+      const { code: _c, ...rest } = data;
+      return this.prisma.warehouse.update({ where: { id }, data: rest });
+    }
     return this.prisma.warehouse.create({ data: { ...data, companyId } });
   }
 
-  // Attributes
   listAttributes(companyId: string) {
     return this.prisma.productAttribute.findMany({
       where: { companyId },
@@ -81,10 +110,9 @@ export class MasterService {
     return this.prisma.productAttribute.create({ data: { ...data, companyId } });
   }
 
-  // Products
-  listProducts(companyId: string) {
+  listProducts(companyId: string, activeOnly = false) {
     return this.prisma.product.findMany({
-      where: { companyId },
+      where: { companyId, ...(activeOnly ? { isActive: true } : {}) },
       include: { attributeValues: { include: { attribute: true } } },
       orderBy: { sku: 'asc' },
     });
@@ -101,11 +129,15 @@ export class MasterService {
 
   async upsertProduct(companyId: string, body: unknown, id?: string) {
     const dto = productSchema.parse(body);
+    let sku = (dto.sku || '').trim();
+    if (!id && !sku) {
+      sku = await this.seq.next(companyId, 'SKU', 'SP');
+    }
+
     const base = {
-      sku: dto.sku,
       nameVi: dto.nameVi,
       nameZh: dto.nameZh || null,
-      unit: dto.unit,
+      unit: dto.unit || 'Cái',
       salePrice: dto.salePrice,
       costPrice: dto.costPrice,
       minStock: dto.minStock,
@@ -117,7 +149,9 @@ export class MasterService {
       if (id) {
         await tx.product.update({ where: { id }, data: base });
       } else {
-        const created = await tx.product.create({ data: { ...base, companyId } });
+        const created = await tx.product.create({
+          data: { ...base, sku, companyId },
+        });
         productId = created.id;
       }
 
@@ -145,7 +179,6 @@ export class MasterService {
   async deleteProduct(companyId: string, id: string) {
     const p = await this.prisma.product.findFirst({ where: { id, companyId } });
     if (!p) throw new NotFoundException('Product not found');
-    if (!p) throw new BadRequestException('Invalid');
     return this.prisma.product.update({ where: { id }, data: { isActive: false } });
   }
 }

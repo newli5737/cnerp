@@ -17,7 +17,7 @@ export function WarehousesPage() {
   const [editing, setEditing] = useState<Wh | null>(null);
   const [form] = Form.useForm();
   const { data = [], isLoading } = useQuery({
-    queryKey: ['warehouses'],
+    queryKey: ['warehouses', 'all'],
     queryFn: () => api<Wh[]>('/warehouses'),
   });
   const save = useMutation({
@@ -83,12 +83,23 @@ export function WarehousesPage() {
         title={editing ? t('edit') : t('create')}
         onClose={() => setOpen(false)}
         loading={save.isPending}
-        onSubmit={() => form.validateFields().then((v) => save.mutate(v))}
+        onSubmit={() =>
+          form.validateFields().then((v) => {
+            const { code: _c, ...rest } = v;
+            save.mutate(editing ? rest : rest);
+          })
+        }
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="code" label={t('code')} rules={[{ required: true }]}>
-            <Input disabled={!!editing} />
-          </Form.Item>
+          {editing ? (
+            <Form.Item label={t('code')}>
+              <Input value={editing.code} disabled />
+            </Form.Item>
+          ) : (
+            <Form.Item label={t('code')}>
+              <Input disabled placeholder={t('autoCode')} />
+            </Form.Item>
+          )}
           <Form.Item name="nameVi" label={`${t('name')} (VI)`} rules={[{ required: true }]}>
             <Input />
           </Form.Item>

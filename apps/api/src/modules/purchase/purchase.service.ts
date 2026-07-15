@@ -69,9 +69,14 @@ export class PurchaseService {
       include: { lines: true },
     });
     if (!order) throw new NotFoundException('Order not found');
-    if (order.status !== 'CONFIRMED' && order.status !== 'DRAFT') {
-      throw new BadRequestException('Invalid status for receive');
+    if (order.status !== 'CONFIRMED') {
+      throw new BadRequestException('Confirm order before receive');
     }
+
+    const existingInv = await this.prisma.invoice.findFirst({
+      where: { purchaseOrderId: order.id },
+    });
+    if (existingInv) throw new BadRequestException('Order already received');
 
     const stockCode = await this.seq.next(companyId, 'STOCK', 'ST');
     const invCode = await this.seq.next(companyId, 'AP', 'AP');

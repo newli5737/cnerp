@@ -24,8 +24,12 @@ export class MasterController {
 
   @Get('partners')
   @RequirePermissions('partners.read')
-  partners(@CurrentUser() u: AuthUser, @Query('type') type?: string) {
-    return this.master.listPartners(u.companyId, type);
+  partners(
+    @CurrentUser() u: AuthUser,
+    @Query('type') type?: string,
+    @Query('active') active?: string,
+  ) {
+    return this.master.listPartners(u.companyId, type, active === '1' || active === 'true');
   }
 
   @Post('partners')
@@ -48,8 +52,8 @@ export class MasterController {
 
   @Get('warehouses')
   @RequirePermissions('warehouses.read')
-  warehouses(@CurrentUser() u: AuthUser) {
-    return this.master.listWarehouses(u.companyId);
+  warehouses(@CurrentUser() u: AuthUser, @Query('active') active?: string) {
+    return this.master.listWarehouses(u.companyId, active === '1' || active === 'true');
   }
 
   @Post('warehouses')
@@ -84,8 +88,8 @@ export class MasterController {
 
   @Get('products')
   @RequirePermissions('products.read')
-  products(@CurrentUser() u: AuthUser) {
-    return this.master.listProducts(u.companyId);
+  products(@CurrentUser() u: AuthUser, @Query('active') active?: string) {
+    return this.master.listProducts(u.companyId, active === '1' || active === 'true');
   }
 
   @Get('products/:id')

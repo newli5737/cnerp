@@ -19,13 +19,13 @@ export function StockMovesPage() {
     queryKey: ['moves'],
     queryFn: () => api<any[]>('/inventory/moves'),
   });
-  const { data: warehouses = [] } = useQuery({
-    queryKey: ['warehouses'],
-    queryFn: () => api<any[]>('/warehouses'),
-  });
   const { data: products = [] } = useQuery({
-    queryKey: ['products'],
-    queryFn: () => api<any[]>('/products'),
+    queryKey: ['products', 'active'],
+    queryFn: () => api<any[]>('/products?active=1'),
+  });
+  const { data: warehouses = [] } = useQuery({
+    queryKey: ['warehouses', 'active'],
+    queryFn: () => api<any[]>('/warehouses?active=1'),
   });
 
   const save = useMutation({

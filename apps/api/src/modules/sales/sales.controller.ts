@@ -18,6 +18,12 @@ export class SalesController {
     return this.sales.list(u.companyId);
   }
 
+  @Get(':id')
+  @RequirePermissions('sales.read')
+  getOne(@CurrentUser() u: AuthUser, @Param('id') id: string) {
+    return this.sales.getOne(u.companyId, id);
+  }
+
   @Post()
   @RequirePermissions('sales.write')
   create(@CurrentUser() u: AuthUser, @Body() body: unknown) {
