@@ -5,6 +5,11 @@ server {
     listen 80;
     server_name cnerp.dosutech.site;
 
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/html;
+        default_type "text/plain";
+    }
+
     root /home/cnerp/apps/web/dist;
     index index.html;
 
